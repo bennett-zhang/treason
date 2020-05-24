@@ -43,13 +43,18 @@ function createAiPlayer(game, options) {
 
     var rand = randomGen.create(options.randomSeed);
 
+    var labelFriend = false;
+    var chanceToHaveFriend = 1;
+    var hasFriend = Math.random() <= chanceToHaveFriend;
+
     var player = {
-        name: aiPlayerNames[rand(aiPlayerNames.length)],
+        name: (labelFriend && hasFriend ? 'Friend ' : '') + aiPlayerNames[rand(aiPlayerNames.length)],
         onStateChange: onStateChange,
         onHistoryEvent: onHistoryEvent,
         onChatMessage: function() {},
         ai: true,
-        playerId: 'ai'
+        playerId: 'ai',
+        friend: hasFriend ? 'Ben' : null
     };
 
     try {
@@ -185,6 +190,19 @@ function createAiPlayer(game, options) {
     }
 
     function respondToAction() {
+        if (aiPlayer.influenceCount <= 0)
+            return;
+
+        if (state.players[state.state.playerIdx].name === aiPlayer.friend
+            || (aiPlayer.friend && state.players[state.state.playerIdx].friend === aiPlayer.friend)) {
+            
+            debug('allowing');
+            command({
+                command: 'allow'
+            });
+            return;
+        }
+
         trackClaim(state.state.playerIdx, state.state.action);
         if (isTeammate(state.state.playerIdx)) {
             // Allow our teammate's actions.
@@ -243,6 +261,19 @@ function createAiPlayer(game, options) {
     }
 
     function respondToBlock() {
+        if (aiPlayer.influenceCount <= 0)
+            return;
+
+        if (state.players[state.state.target].name === aiPlayer.friend
+            || (aiPlayer.friend && state.players[state.state.target].friend === aiPlayer.friend)) {
+            
+            debug('allowing');
+            command({
+                command: 'allow'
+            });
+            return;
+        }
+
         trackClaim(state.state.target, state.state.blockingRole);
         if (isTeammate(state.state.target)) {
             // Allow our teammate's actions.
@@ -452,8 +483,50 @@ function createAiPlayer(game, options) {
         var influence = ourInfluence();
         debug('influence: ' + influence);
 
-        if (aiPlayer.cash >= 7) {
-            playAction('coup', strongestPlayer());
+        var threatIdxs = threatsToFriend();
+        var bigThreatIdx = threatIdxs.find(idx => state.players[idx].cash >= 7);
+        var smallThreatIdx;
+        if (bigThreatIdx) {
+            var smallThreatIdxs = threatsToFriend(bigThreatIdx, state.playerIdx);
+            if (smallThreatIdxs.length) {
+                smallThreatIdx = smallThreatIdxs.reduce((prev, curr, i) => {
+                    if (i === 0 || state.players[curr].cash > state.players[prev].cash)
+                        return curr;
+                    return prev;
+                });
+            }
+            else {
+                smallThreatIdxs = threatsToFriend(state.playerIdx, bigThreatIdx);
+                if (smallThreatIdxs.length)
+                    smallThreatIdx = smallThreatIdxs.find(idx => state.players[idx].cash === 0);
+            }
+        }
+
+        if (bigThreatIdx && aiPlayer.cash >= 7) {
+            playAction('coup', bigThreatIdx);
+        } else if (bigThreatIdx && smallThreatIdx && state.freeForAll && aiPlayer.cash >= 2) {
+            playAction('convert', smallThreatIdx);
+        } else if (bigThreatIdx && state.freeForAll && aiPlayer.cash >= 1) {
+            playAction('change-team');
+        } else if (bigThreatIdx && !state.freeForAll && aiPlayer.cash >= 2) {
+            var friendPlyrIdx = friendPlayer();
+            var strongTeam = strongerTeam(friendPlyrIdx, bigThreatIdx);
+
+            if (onTeamByThemselves(friendPlyrIdx))
+                playAction('convert', bigThreatIdx);
+            else if (onTeamByThemselves(bigThreatIdx))
+                playAction('convert', friendPlyrIdx);
+            else if (state.players[friendPlyrIdx].team === strongTeam)
+                playAction('convert', bigThreatIdx);
+            else
+                playAction('convert', friendPlyrIdx);
+        } else if (aiPlayer.cash >= 7) {
+            var strongestPlyrIdx = strongestPlayer();
+            if (state.players[strongestPlyrIdx].name === aiPlayer.friend) {
+                playAction('assassinate', strongestPlyrIdx);
+            } else {
+                playAction('coup', strongestPlyrIdx);
+            }
         } else if (influence.indexOf('assassin') >= 0 && aiPlayer.cash >= 3 && assassinTarget() != null && !randomizeChoice()) {
             playAction('assassinate', assassinTarget());
         } else if (influence.indexOf('captain') >= 0 && captainTarget() != null && !randomizeChoice()) {
@@ -621,15 +694,25 @@ function createAiPlayer(game, options) {
     }
 
     function assassinTarget() {
-        return playersByStrength().filter(function (idx) {
-            return !canBlock(idx, 'assassinate');
-        })[0];
+        var potentialTargets = playersByStrength().filter(function (idx) {
+            return !canBlock(idx, 'assassinate') && state.players[idx].name !== aiPlayer.friend;
+        });
+
+        if (aiPlayer.friend)
+            return potentialTargets.find(idx => state.players[idx].friend !== aiPlayer.friend);
+
+        return potentialTargets[0];
     }
 
     function captainTarget() {
-        return playersByStrength().filter(function (idx) {
-            return !canBlock(idx, 'steal') && state.players[idx].cash > 0;
-        })[0];
+        var potentialTargets = playersByStrength().filter(function (idx) {
+            return !canBlock(idx, 'steal') && state.players[idx].cash > 0 && state.players[idx].name !== aiPlayer.friend;
+        });
+
+        if (aiPlayer.friend)
+            return potentialTargets.find(idx => state.players[idx].friend !== aiPlayer.friend);
+
+        return potentialTargets[0];
     }
 
     function canBlock(playerIdx, actionName) {
@@ -637,7 +720,21 @@ function createAiPlayer(game, options) {
     }
 
     function strongestPlayer() {
-        return playersByStrength()[0];
+        var sortedPlayers = playersByStrength();
+
+        if (sortedPlayers.length === 1)
+            return sortedPlayers[0];
+
+        var potentialTargets = sortedPlayers.filter(idx => state.players[idx].name !== aiPlayer.friend);
+
+        if (aiPlayer.friend) {
+            var target = potentialTargets.find(idx => state.players[idx].friend !== aiPlayer.friend);
+
+            if (target)
+                return target;
+        }
+
+        return potentialTargets[0];
     }
 
     // Rank opponents by influence first, and money second
@@ -671,6 +768,112 @@ function createAiPlayer(game, options) {
             }
         });
         return indices;
+    }
+
+    function friendPlayer() {
+        return state.players.findIndex(player => {
+            return player.name === aiPlayer.friend && player.influenceCount > 0
+        });
+    }
+
+    function threatsToFriend(startIdx = state.state.playerIdx, endIdx) {
+        if (!isReformation())
+            return [];
+
+        var friendPlyrIdx = friendPlayer();
+
+        if (friendPlyrIdx === -1)
+            return [];
+
+        var friendPlyr = state.players[friendPlyrIdx];
+        var threatIdxs = [];
+
+        for (var j = 1; j < state.numPlayers; j++) {
+            var i = (j + startIdx) % state.numPlayers;
+            var player = state.players[i];
+
+            if (i === endIdx)
+                break;
+
+            if (i !== state.playerIdx && i !== friendPlyrIdx && player.friend !== aiPlayer.friend
+                && player.influenceCount > 0
+                && (state.freeForAll || friendPlyr.team !== player.team)) {
+
+                threatIdxs.push(i);
+            }
+        }
+
+        return threatIdxs;
+    }
+
+    function onTeamByThemselves(playerIdx) {
+        if (!isReformation())
+            return;
+
+        var team = state.players[playerIdx].team;
+
+        for (var i = 0; i < state.numPlayers; i++) {
+            if (i !== playerIdx && state.players[i].influenceCount > 0 && state.players[i].team === team)
+                return false;
+        }
+
+        return true;
+    }
+
+    function strongerTeam(friendPlyrIdx, threatIdx) {
+        var teamRed = {
+            influenceCount: 0,
+            cash: 0,
+            readyToCoup: 0
+        };
+
+        var teamBlue = {
+            influenceCount: 0,
+            cash: 0,
+            readyToCoup: 0
+        };
+
+        for (var i = 0; i < state.numPlayers; i++) {
+            if (i !== friendPlyrIdx && i !== threatIdx && state.players[i].influenceCount > 0) {
+                var team;
+
+                if (state.players[i].team === 1)
+                    team = teamRed;    
+                else
+                    team = teamBlue;
+
+                team.influenceCount += state.players[i].influenceCount;
+                team.cash += state.players[i].cash;
+
+                if (state.players[i].cash >= 7)
+                    team.readyToCoup++;
+            }
+        }
+
+        if (teamRed.readyToCoup > teamBlue.readyToCoup)
+            return 1;
+        
+        if (teamRed.readyToCoup < teamBlue.readyToCoup)
+            return -1;
+
+        if (teamRed.influenceCount > teamBlue.influenceCount)
+            return 1;
+        
+        if (teamRed.influenceCount < teamBlue.influenceCount)
+            return -1;
+
+        if (aiPlayer.team === 1)
+            teamRed.cash -= 2;
+        else
+            teamBlue.cash -= 2;
+
+        if (teamRed.cash > teamBlue.cash)
+            return 1;
+
+        if (teamRed.cash < teamBlue.cash)
+            return -1;
+        
+        return 1;
     }
 
     function exchange() {

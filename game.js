@@ -134,6 +134,7 @@ module.exports = function createGame(options) {
             influence: [],
             isObserver: false,
             ai: !!playerIface.ai,
+            friend: playerIface.friend,
             isReady: isObserver ? 'observe' : true,
             connected: true
         };
