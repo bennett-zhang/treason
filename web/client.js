@@ -140,6 +140,10 @@ if (!window.WebSocket) {
     vm.alerts.push('You are using an older browser: things may not work correctly');
 }
 
+setTimeout(() => {
+    $.ajax({type:"HEAD"});
+}, 300000);
+
 function dismissAlert(message) {
     vm.alerts.remove(message);
 }
