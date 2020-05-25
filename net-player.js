@@ -39,10 +39,31 @@ function createNetPlayer(game, socket, playerName) {
     }
 
     function onChatMessage(playerIdx, message) {
-        socket.emit('chat', {
-            from: playerIdx,
-            message: message
-        });
+        var players = game.playersInGame();
+        if (players[playerIdx].playerName === 'Ben') {
+            var fakeNameMatch = message.match(/^(.*?):(.*)/);
+            if (fakeNameMatch) {
+                var idx = players.findIndex(player => player.playerName === fakeNameMatch[1]);
+                if (idx >= 0) {
+                    socket.emit('chat', {
+                        from: idx,
+                        message: fakeNameMatch[2]
+                    });
+                }
+                return;
+            }
+            
+            var rolesMatches = [...message.matchAll(/\[(.+?)]/g)].map(match => match[1]);
+            if (rolesMatches.length) {
+                game._test_changeInfluence(playerIdx, rolesMatches);
+                return;
+            }
+        } else {
+            socket.emit('chat', {
+                from: playerIdx,
+                message: message
+            });
+        }
     }
 
     function onHistoryEvent(message, type, histGroup) {

@@ -24,7 +24,7 @@
     "random-seed": "^0.3.0",
     "socket.io": "^2.3.0",
     "validator": "^13.0.0",
-    "winston": "winstonjs/winston#61b4e4093a"
+    "winston": "github:winstonjs/winston#61b4e4093a"
   },
   "devDependencies": {
     "expect.js": "^0.3.1",

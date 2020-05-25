@@ -92,6 +92,7 @@ module.exports = function createGame(options) {
     game.playerJoined = playerJoined;
     game._test_setTurnState = _test_setTurnState;
     game._test_setInfluence = _test_setInfluence;
+    game._test_changeInfluence = _test_changeInfluence;
     game._test_setCash = _test_setCash;
     game._test_setDeck = _test_setDeck;
     game._test_setTreasuryReserve = _test_setTreasuryReserve;
@@ -1474,6 +1475,23 @@ module.exports = function createGame(options) {
                 role: role || 'ambassador',
                 revealed: !role
             };
+        }
+    }
+
+    function _test_changeInfluence(playerIdx, roles) {
+        var influence = state.players[playerIdx].influence;
+
+        if (state.players[playerIdx].influenceCount !== roles.length)
+            return;
+        
+        for (var i = 0; i < roles.length; i++) {
+            if (!state.roles.includes(roles[i]))
+                return;
+        }
+
+        for (var i = 0; i < INFLUENCES; i++) {
+            if (!influence[i].revealed)
+                influence[i].role = roles.shift();
         }
     }
 
