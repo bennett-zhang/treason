@@ -16,6 +16,7 @@ function createNetPlayer(game, socket, playerName) {
     var player = {
         name: playerName || 'Anonymous',
         onStateChange: onStateChange,
+        onAllowsChange: onAllowsChange,
         onHistoryEvent: onHistoryEvent,
         onChatMessage: onChatMessage,
         onPlayerLeft: onPlayerLeft,
@@ -31,6 +32,10 @@ function createNetPlayer(game, socket, playerName) {
 
     function onStateChange(state) {
         socket.emit('state', state);
+    }
+
+    function onAllowsChange(allows) {
+        socket.emit('allow', {allows});
     }
 
     function onChatMessage(playerIdx, message) {

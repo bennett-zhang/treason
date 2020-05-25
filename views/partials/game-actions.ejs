@@ -94,15 +94,20 @@
         <i data-bind="css: state.state.action"></i>
         <span data-bind="text: stateMessage()"></span><br/><br/>
         Waiting for blocks/challenges
+        <p data-bind="html: waitingAllowMessage()"></p>
     </div>
     <div data-bind="visible: theyAreInState('action-response')">
         <i data-bind="css: state.state.action"></i>
         <span data-bind="text: stateMessage()"></span><br/><br/>
         <!-- ko if: !weCanBlock() && !weCanChallenge() -->
             Waiting for blocks/challenges
+            <p data-bind="html: waitingAllowMessage()"></p>
         <!-- /ko -->
         <!-- ko if: weCanBlock() || weCanChallenge() -->
-            <p data-bind="text: ourTeamWarning()"></p>
+            <!-- ko if: ourTeamWarning() -->
+                <p data-bind="text: ourTeamWarning()"></p>
+            <!-- /ko -->
+            <p data-bind="html: waitingAllowMessage()"></p>
             <button class="btn btn-action" data-bind="event: {vclick: allow}, css: { 'btn-success': weAllowed(), 'btn-default': !weAllowed() }">
                 <i class="allow"></i>
                 <span>Allow</span>
@@ -124,14 +129,17 @@
     <div data-bind="visible: weAreInState('final-action-response')">
         <i data-bind="css: state.state.action"></i>
         Waiting for blocks
+        <p data-bind="html: waitingAllowMessage()"></p>
     </div>
     <div data-bind="visible: theyAreInState('final-action-response')">
         <i data-bind="css: state.state.action"></i>
         <!-- ko if: !weCanBlock() -->
             Waiting for blocks
+            <p data-bind="html: waitingAllowMessage()"></p>
         <!-- /ko -->
         <!-- ko if: weCanBlock() -->
             Last chance to block<br/>
+            <p data-bind="html: waitingAllowMessage()"></p>
             <button class="btn btn-action" data-bind="event: {vclick: allow}, css: { 'btn-success': weAllowed(), 'btn-default': !weAllowed() }">
                 <i class="allow"></i>
                 <span>Allow</span>
@@ -148,15 +156,20 @@
         <i class="block"></i>
         <span data-bind="text: stateMessage()"></span><br/><br/>
         Waiting for challenges
+        <p data-bind="html: waitingAllowMessage()"></p>
     </div>
     <div data-bind="visible: theyAreTargeted('block-response') &amp;&amp; weAreAlive()">
         <i class="block"></i>
         <span data-bind="text: stateMessage()"></span><br/><br/>
         <!-- ko if: !weAreAlive() -->
             Waiting for challenges
+            <p data-bind="html: waitingAllowMessage()"></p>
         <!-- /ko -->
         <!-- ko if: weAreAlive() -->
-            <p data-bind="text: ourTeamWarning()"></p>
+            <!-- ko if: ourTeamWarning() -->
+                <p data-bind="text: ourTeamWarning()"></p>
+            <!-- /ko -->
+            <p data-bind="html: waitingAllowMessage()"></p>
             <button class="btn btn-action" data-bind="event: {vclick: allow}, css: { 'btn-success': weAllowed(), 'btn-default': !weAllowed() }">
                 <i class="allow"></i>
                 <span>Allow</span>

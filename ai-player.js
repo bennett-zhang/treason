@@ -50,6 +50,7 @@ function createAiPlayer(game, options) {
     var player = {
         name: (labelFriend && hasFriend ? 'Friend ' : '') + aiPlayerNames[rand(aiPlayerNames.length)],
         onStateChange: onStateChange,
+        onAllowsChange: onAllowsChange,
         onHistoryEvent: onHistoryEvent,
         onChatMessage: function() {},
         ai: true,
@@ -71,6 +72,7 @@ function createAiPlayer(game, options) {
     var targetPlayer;
     // Array indexed by playerIdx, containing objects whose keys are the roles each player (including us) has claimed
     var claims = [];
+    var allows = [];
     // The last role to be claimed. Used when a challenge is issued, to track which role was challenged.
     var lastRoleClaim;
     var timeout = null;
@@ -135,6 +137,13 @@ function createAiPlayer(game, options) {
         } else if (state.state.name == stateNames.EXCHANGE && currentPlayer == aiPlayer) {
             exchange();
         }
+    }
+
+    function onAllowsChange(a) {
+        if (a)
+            allows = a;
+        else
+            allows = [];
     }
 
     function reset() {

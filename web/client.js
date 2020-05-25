@@ -48,6 +48,7 @@ vm = {
     alerts: ko.observableArray(), // Shown in a banner at the top of the screen.
     targetedAction: ko.observable(''), // During a coup, steal or assassination, the player that the user is targeting.
     weAllowed: ko.observable(false), // If true, the user has allowed the current action.
+    allows: ko.observableArray([]),
     chosenExchangeOptions: ko.observable({}), // During an exchange, the roles that the user has selected so far.
     sidebar: ko.observable('chat'), // Which pane is shown in the sidebar: chat or cheat sheet.
     history: ko.observableArray(), // List of all history items in the game in play.
@@ -251,6 +252,12 @@ socket.on('state', function (data) {
         notifyPlayerOfState();
     }
 });
+socket.on('allow', data => {
+    if (data.allows)
+        vm.allows(data.allows);
+    else
+        vm.allows([]);
+})
 socket.on('history', function (data) {
     var items;
     // Collect related history items together (but don't bother searching too far back).
@@ -652,6 +659,38 @@ function ourTeamWarning() {
         var player = getPlayer(teammateIdx);
         return player && (player.name() + ' is on your team');
     }
+}
+function waitingAllowMessage() {
+    var waitingAllows = [];
+    for (var i = 0; i < vm.state.numPlayers(); i++) {
+        if (!vm.allows()[i] && vm.state.players()[i].influenceCount() > 0)
+            waitingAllows.push(i);
+    }
+    
+    if (waitingAllows.length === 1) {
+        if (waitingAllows[0] === vm.state.playerIdx())
+            return 'Everyone is waiting for <strong>you</strong>!';
+        return 'Waiting for ' + vm.state.players()[waitingAllows[0]].name();
+    }
+    
+    if (waitingAllows.length === 2) {
+        var name1, name2;
+
+        if (waitingAllows[0] === vm.state.playerIdx()) {
+            name1 = '<strong>you</strong>';
+            name2 = vm.state.players()[waitingAllows[1]].name();
+        } else if (waitingAllows[1] === vm.state.playerIdx()) {
+            name1 = '<strong>you</strong>';
+            name2 = vm.state.players()[waitingAllows[0]].name();
+        } else {
+            name1 = vm.state.players()[waitingAllows[0]].name();
+            name2 = vm.state.players()[waitingAllows[1]].name();
+        }
+
+        return 'Waiting for ' + name1 + ' and ' + name2;
+    }
+
+    return '';
 }
 function playerHasRole(player, role) {
     return player.influence()

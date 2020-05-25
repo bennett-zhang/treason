@@ -453,6 +453,20 @@ module.exports = function createGame(options) {
         }, 0);
     }
 
+    function emitAllows() {
+        for (var i = 0; i < state.players.length; i++) {
+            emitAllowsAsync(i);
+        }
+    }
+
+    function emitAllowsAsync(playerIdx) {
+        setTimeout(function () {
+            if (playerIfaces[playerIdx] != null) {
+                playerIfaces[playerIdx].onAllowsChange(allows);
+            }
+        }, 0);
+    }
+
     /**
      * Mask hidden influences, add player-specific data.
      */
@@ -921,6 +935,7 @@ module.exports = function createGame(options) {
                 throw new GameException('Cannot allow your own block');
             }
             allows[playerIdx] = true;
+            emitAllows();
             if (everyoneAllows()) {
                 addHistory('block', curTurnHistGroup(), '{%d} blocked with %s', state.state.target, state.state.blockingRole);
                 nextTurn();
@@ -938,6 +953,7 @@ module.exports = function createGame(options) {
                 }
             } else {
                 allows[playerIdx] = true;
+                emitAllows();
                 if (!everyoneAllows()) {
                     return false;
                 }
@@ -1014,6 +1030,7 @@ module.exports = function createGame(options) {
                 }
             }
         }
+        emitAllows();
     }
 
     function everyoneAllows() {
