@@ -42,7 +42,7 @@ const actionMessages = {
     'exchange': (idx) => `{${idx}} attempted to exchange`,
     'interrogate': (idx, target) => `{${idx}} attempted to interrogate {${target}}`,
     'embezzle': (idx, target, action, state) => `{${idx}} attempted to embezzle $${state.treasuryReserve}`
-}
+};
 
 module.exports = function createGame(options) {
     options = options || {};
@@ -1478,21 +1478,55 @@ module.exports = function createGame(options) {
         }
     }
 
-    function _test_changeInfluence(playerIdx, roles) {
-        var influence = state.players[playerIdx].influence;
+    function roleFromAbbreviation(abbrev) {
+        switch (abbrev) {
+            case 'd':
+                return 'duke';
+            case 'k':
+                return 'captain';
+            case 'a':
+                return 'assassin';
+            case 'c':
+                return 'contessa';
+            case 'm':
+                return 'ambassador';
+            case 'i':
+                return 'inquisitor';
+        }
+        return abbrev;
+    }
 
+    function _test_changeInfluence(playerIdx, roles) {
         if (state.players[playerIdx].influenceCount !== roles.length)
             return;
         
-        for (var i = 0; i < roles.length; i++) {
-            if (!state.roles.includes(roles[i]))
+        roles = roles.map(role => roleFromAbbreviation(role));
+
+        var influence = state.players[playerIdx].influence;
+        var influenceRoles = influence.map(inf => inf.role);
+        var testDeck = deck.concat(influenceRoles);
+
+        for (var role of roles) {
+            var roleIdx = testDeck.indexOf(role);
+
+            if (roleIdx >= 0)
+                testDeck.splice(roleIdx, 1);
+            else
                 return;
         }
 
-        for (var i = 0; i < INFLUENCES; i++) {
-            if (!influence[i].revealed)
-                influence[i].role = roles.shift();
+        deck = deck.concat(influenceRoles);
+        var i = 0;
+        for (var inf of influence) {
+            if (!inf.revealed) {
+                var roleIdx = deck.indexOf(roles[i]);
+                deck.splice(roleIdx, 1);
+                inf.role = roles[i];
+                i++;
+            }
         }
+
+        emitState();
     }
 
     function _test_setCash(playerIdx, cash) {
