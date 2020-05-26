@@ -81,7 +81,7 @@ div.hidden {
     display: none;
 }
 div.chat {
-    height: 200px;
+    height: 300px;
     overflow-y: scroll;
     margin-bottom: 10px;
     word-wrap: break-word;
