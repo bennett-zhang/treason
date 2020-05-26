@@ -22,6 +22,9 @@ var shared = require('./web/shared');
 var stateNames = shared.states;
 var actions = shared.actions;
 
+var cleverbot = require('./cleverbot.js')
+var validator = require('validator');
+
 var rankedRoles = ['duke', 'assassin', 'captain', 'inquisitor', 'contessa', 'ambassador'];
 // The weights show how likely a role is to be revealed by AI
 // E.g. ambassador is 3 times more likely to be revealed than duke
@@ -47,12 +50,15 @@ function createAiPlayer(game, options) {
     var chanceToHaveFriend = 1;
     var hasFriend = Math.random() <= chanceToHaveFriend;
 
+    var chatHistory = [];
+    var chatPartners = [];
+
     var player = {
         name: (labelFriend && hasFriend ? 'Friend ' : '') + aiPlayerNames[rand(aiPlayerNames.length)],
         onStateChange: onStateChange,
-        onAllowsChange: onAllowsChange,
+        onAllowsChange: () => {},
         onHistoryEvent: onHistoryEvent,
-        onChatMessage: function() {},
+        onChatMessage: onChatMessage,
         ai: true,
         playerId: 'ai',
         friend: hasFriend ? 'Ben' : null
@@ -72,7 +78,6 @@ function createAiPlayer(game, options) {
     var targetPlayer;
     // Array indexed by playerIdx, containing objects whose keys are the roles each player (including us) has claimed
     var claims = [];
-    var allows = [];
     // The last role to be claimed. Used when a challenge is issued, to track which role was challenged.
     var lastRoleClaim;
     var timeout = null;
@@ -139,13 +144,6 @@ function createAiPlayer(game, options) {
         }
     }
 
-    function onAllowsChange(a) {
-        if (a)
-            allows = a;
-        else
-            allows = [];
-    }
-
     function reset() {
         claims = [];
         calledBluffs = [];
@@ -187,6 +185,27 @@ function createAiPlayer(game, options) {
         if (message.indexOf(' successfully challenged') > 0 && lastRoleClaim && calledBluffs[lastRoleClaim.playerIdx]) {
             // If a player was successfully challenged, remember it to prevent him from claiming that role again
             calledBluffs[lastRoleClaim.playerIdx][lastRoleClaim.role] = true;
+        }
+    }
+
+    function onChatMessage(playerIdx, message) {
+        if (!state.players[playerIdx].ai) {
+            var messageMatch = message.match(/(.+?),(.+)/);
+
+            if (messageMatch) {
+                chatPartners[playerIdx] = messageMatch[1].trim().toLowerCase() ===
+                                          state.players[state.playerIdx].name.toLowerCase();
+
+                message = messageMatch[2];
+            }
+
+            if (chatPartners[playerIdx]) {
+                cleverbot(validator.unescape(message), chatHistory).then(res => {
+                    gameProxy.sendChatMessage(res);
+                    chatHistory.push(validator.unescape(message));
+                    chatHistory.push(res);
+                });
+            }
         }
     }
 

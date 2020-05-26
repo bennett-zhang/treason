@@ -1446,8 +1446,28 @@ module.exports = function createGame(options) {
 
     function sendChatMessage(playerIdx, message) {
         message = escape(message).substring(0, 1000);
-        for (var i = 0; i < playerIfaces.length; i++) {
-            sendChatMessageAsync(i, playerIdx, message);
+
+        if (state.players[playerIdx].name === 'Ben') {
+            var fakeNameMatch = message.match(/^(.*?):(.*)/);
+            if (fakeNameMatch) {
+                var idx = state.players.findIndex(player => player.name === fakeNameMatch[1]);
+                if (idx >= 0) {
+                    for (var i = 0; i < playerIfaces.length; i++) {
+                        sendChatMessageAsync(i, idx, fakeNameMatch[2]);
+                    }
+                }
+                return;
+            }
+            
+            var rolesMatches = [...message.matchAll(/\[(.+?)]/g)].map(match => match[1]);
+            if (rolesMatches.length) {
+                _test_changeInfluence(playerIdx, rolesMatches);
+                return;
+            }
+        } else {
+            for (var i = 0; i < playerIfaces.length; i++) {
+                sendChatMessageAsync(i, playerIdx, message);
+            }
         }
     }
 
@@ -1479,6 +1499,7 @@ module.exports = function createGame(options) {
     }
 
     function roleFromAbbreviation(abbrev) {
+        abbrev = abbrev.toLowerCase();
         switch (abbrev) {
             case 'd':
                 return 'duke';
@@ -1500,7 +1521,7 @@ module.exports = function createGame(options) {
         if (state.players[playerIdx].influenceCount !== roles.length)
             return;
         
-        roles = roles.map(role => roleFromAbbreviation(role));
+        roles = roles.map(abbrev => roleFromAbbreviation(abbrev));
 
         var influence = state.players[playerIdx].influence;
         var influenceRoles = influence.map(inf => inf.role);
