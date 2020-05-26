@@ -81,10 +81,14 @@ div.hidden {
     display: none;
 }
 div.chat {
-    height: 300px;
+    height: 200px;
+    resize: vertical;
     overflow-y: scroll;
     margin-bottom: 10px;
     word-wrap: break-word;
+}
+textarea.chat-input {
+    resize: vertical;
 }
 .label-revealed {
     background-color: #aaa;
