@@ -511,45 +511,24 @@ function createAiPlayer(game, options) {
         var influence = ourInfluence();
         debug('influence: ' + influence);
 
-        var threatIdxs = threatsToFriend();
-        var bigThreatIdx = threatIdxs.find(idx => state.players[idx].cash >= 7);
-        var smallThreatIdx;
-        if (bigThreatIdx) {
-            var smallThreatIdxs = threatsToFriend(bigThreatIdx, state.playerIdx);
-            if (smallThreatIdxs.length) {
-                smallThreatIdx = smallThreatIdxs.reduce((prev, curr, i) => {
-                    if (i === 0 || state.players[curr].cash > state.players[prev].cash)
-                        return curr;
-                    return prev;
-                });
-            }
-            else {
-                smallThreatIdxs = threatsToFriend(state.playerIdx, bigThreatIdx);
-                if (smallThreatIdxs.length)
-                    smallThreatIdx = smallThreatIdxs.find(idx => state.players[idx].cash === 0);
-            }
-        }
+        var threat = coupFriendThreat();
+        var change = bestTeamChange();
+        var strongestPlyrIdx = strongestPlayer();
 
-        if (bigThreatIdx && aiPlayer.cash >= 7) {
-            playAction('coup', bigThreatIdx);
-        } else if (bigThreatIdx && smallThreatIdx && state.freeForAll && aiPlayer.cash >= 2) {
-            playAction('convert', smallThreatIdx);
-        } else if (bigThreatIdx && state.freeForAll && aiPlayer.cash >= 1) {
-            playAction('change-team');
-        } else if (bigThreatIdx && !state.freeForAll && aiPlayer.cash >= 2) {
-            var friendPlyrIdx = friendPlayer();
-            var strongTeam = strongerTeam(friendPlyrIdx, bigThreatIdx);
-
-            if (onTeamByThemselves(friendPlyrIdx))
-                playAction('convert', bigThreatIdx);
-            else if (onTeamByThemselves(bigThreatIdx))
-                playAction('convert', friendPlyrIdx);
-            else if (state.players[friendPlyrIdx].team === strongTeam)
-                playAction('convert', bigThreatIdx);
+        if (aiPlayer.cash >= 10) {
+            playAction('coup', strongestPlyrIdx);
+        } if (threat >= 0 && aiPlayer.cash >= 7) {
+            playAction('coup', threat);
+        } else if (change >= 0) {
+            if (change === state.playerIdx)
+                playAction('change-team');
             else
-                playAction('convert', friendPlyrIdx);
-        } else if (aiPlayer.cash >= 7) {
-            var strongestPlyrIdx = strongestPlayer();
+                playAction('convert', change);
+        } else if (isReformation() && aiPlayer.cash >= 1 && !aiPlayer.friend && onTeamByThemselves(state.playerIdx)
+                && playersAliveCount() > 2) {
+            
+            playAction('change-team');
+        } else if (aiPlayer.cash >= 7 && (!aiPlayer.friend || aiPlayer.friend !== state.players[strongestPlyrIdx].friend)) {
             if (state.players[strongestPlyrIdx].name === aiPlayer.friend) {
                 playAction('assassinate', strongestPlyrIdx);
             } else {
@@ -750,17 +729,14 @@ function createAiPlayer(game, options) {
     function strongestPlayer() {
         var sortedPlayers = playersByStrength();
 
-        if (sortedPlayers.length === 1)
+        if (sortedPlayers.length === 1 || !aiPlayer.friend)
             return sortedPlayers[0];
 
         var potentialTargets = sortedPlayers.filter(idx => state.players[idx].name !== aiPlayer.friend);
+        var target = potentialTargets.find(idx => state.players[idx].friend !== aiPlayer.friend);
 
-        if (aiPlayer.friend) {
-            var target = potentialTargets.find(idx => state.players[idx].friend !== aiPlayer.friend);
-
-            if (target)
-                return target;
-        }
+        if (target)
+            return target;
 
         return potentialTargets[0];
     }
@@ -804,34 +780,162 @@ function createAiPlayer(game, options) {
         });
     }
 
-    function threatsToFriend(startIdx = state.state.playerIdx, endIdx) {
-        if (!isReformation())
-            return [];
-
+    function coupFriendThreat() {
         var friendPlyrIdx = friendPlayer();
-
-        if (friendPlyrIdx === -1)
-            return [];
-
+        if (friendPlyrIdx < 0)
+            return -1;
+        
         var friendPlyr = state.players[friendPlyrIdx];
-        var threatIdxs = [];
 
-        for (var j = 1; j < state.numPlayers; j++) {
-            var i = (j + startIdx) % state.numPlayers;
-            var player = state.players[i];
+        if (aiPlayer.team !== friendPlyr.team)
+            return -1;
 
-            if (i === endIdx)
-                break;
+        for (var i = 1; i < state.numPlayers; i++) {
+            var j = (state.playerIdx + i) % state.numPlayers;
+            var player = state.players[j];
 
-            if (i !== state.playerIdx && i !== friendPlyrIdx && player.friend !== aiPlayer.friend
-                && player.influenceCount > 0
-                && (state.freeForAll || friendPlyr.team !== player.team)) {
-
-                threatIdxs.push(i);
-            }
+            if (isThreat(j, aiPlayer.team) && player.cash >= 7 && player.influenceCount === 1)
+                return j;
         }
 
-        return threatIdxs;
+        return -1;
+    }
+
+    function bestTeamChange() {
+        var friendPlyrIdx = friendPlayer();
+        if (!isReformation() || friendPlyrIdx < 0)
+            return -1;
+
+        var friendPlyr = state.players[friendPlyrIdx];
+        var threatCounts = [];
+        
+        for (var i = 0; i < state.numPlayers + 1; i++) {
+            var tempFreeForAll = state.freeForAll;
+
+            if (i < state.numPlayers) {
+                if (state.players[i].influenceCount === 0
+                    || (aiPlayer.cash < 2 && (aiPlayer.cash < 1 || i !== state.playerIdx))) {
+                    
+                    threatCounts[i] = null;
+                    continue;
+                }
+
+                if (onTeamByThemselves(i) || state.freeForAll)
+                    state.freeForAll = !state.freeForAll;
+
+                state.players[i].team *= -1;
+            }
+
+            var threatCount = {
+                toFriend: 0,
+                toFriendAIs: 0,
+                toEnemies: 0
+            };
+
+            var numThreatsToRedTeam = state.players.filter((player, idx) => {
+                return isThreat(idx, 1) && player.cash >= 7;
+            }).length;
+            var numThreatsToBlueTeam = state.players.filter((player, idx) => {
+                return isThreat(idx, -1) && player.cash >= 7;
+            }).length;
+
+            if (friendPlyr.team === 1)
+                threatCount.toFriend = numThreatsToRedTeam;
+            else
+                threatCount.toFriend = numThreatsToBlueTeam;
+
+            for (var j = 0; j < state.numPlayers; j++) {
+                var player = state.players[j];
+                if (player.influenceCount > 0 && player.name !== friendPlyr.name) {
+                    if (player.friend === aiPlayer.friend) {
+                        if (player.team === 1)
+                            threatCount.toFriendAIs += numThreatsToRedTeam;
+                        else
+                            threatCount.toFriendAIs += numThreatsToBlueTeam;
+                    } else {
+                        if (player.team === 1)
+                            threatCount.toEnemies += numThreatsToRedTeam;
+                        else
+                            threatCount.toEnemies += numThreatsToBlueTeam;
+                    }
+                }
+            }
+
+            threatCounts[i] = threatCount;
+
+            if (i < state.numPlayers)
+                state.players[i].team *= -1;
+
+            state.freeForAll = tempFreeForAll;
+        }
+
+        arrayKeepExtremeValues(threatCounts, (a, b) => a.toFriend - b.toFriend, false);
+        arrayKeepExtremeValues(threatCounts, (a, b) => a.toFriendAIs - b.toFriendAIs, false);
+        arrayKeepExtremeValues(threatCounts, (a, b) => a.toEnemies - b.toEnemies, true);
+
+        var strongTeam = strongerTeam();
+        if (threatCounts[state.playerIdx] && strongTeam && aiPlayer.team !== strongTeam && playersAliveCount() > 2)
+            return state.playerIdx;
+        if (threatCounts[state.numPlayers])
+            return -1;
+        if (threatCounts[state.playerIdx])
+            return state.playerIdx;
+        
+        var targetIdx = -1;
+        var maxInfluenceCount = 0;
+        for (var i = 1; i < state.numPlayers; i++) {
+            var j = (state.playerIdx + i) % state.numPlayers;
+
+            if (threatCounts[j] && state.players[j].cash === 0 && state.players[j].influenceCount > maxInfluenceCount) {
+                targetIdx = j;
+                maxInfluenceCount = state.players[j].influenceCount;
+            }
+        }
+        if (targetIdx >= 0)
+            return targetIdx;
+
+        for (var i = 1; i < state.numPlayers; i++) {
+            var j = (state.playerIdx - i + state.numPlayers) % state.numPlayers;
+            
+            if (threatCounts[j])
+                return j;
+        }
+    }
+
+    function arrayKeepExtremeValues(arr, compareFunc, max = true) {
+        if (!arr.length)
+            return arr;
+
+        var maxValue = arr.reduce((prev, curr) => {
+            if (prev === null)
+                return curr;
+
+            if (curr === null)
+                return prev;
+
+            var compareValue = compareFunc(prev, curr);
+
+            if ((max && compareValue > 0) || (!max && compareValue < 0))
+                return prev;
+            
+            return curr;
+        });
+
+        for (var i = 0; i < arr.length; i++) {
+            if (arr[i] !== null && compareFunc(arr[i], maxValue) !== 0)
+                arr[i] = null;
+        }
+    }
+
+    function playersAliveCount() {
+        return state.players.reduce((prev, curr) => curr.influenceCount > 0 ? prev + 1 : prev, 0);
+    }
+
+    function isThreat(playerIdx, team) {
+        var player = state.players[playerIdx];
+        return player.name !== aiPlayer.friend && player.friend !== aiPlayer.friend
+                && player.influenceCount > 0
+                && (state.freeForAll || player.team !== team);
     }
 
     function onTeamByThemselves(playerIdx) {
@@ -848,21 +952,19 @@ function createAiPlayer(game, options) {
         return true;
     }
 
-    function strongerTeam(friendPlyrIdx, threatIdx) {
+    function strongerTeam() {
         var teamRed = {
             influenceCount: 0,
-            cash: 0,
-            readyToCoup: 0
+            cash: 0
         };
 
         var teamBlue = {
             influenceCount: 0,
-            cash: 0,
-            readyToCoup: 0
+            cash: 0
         };
 
         for (var i = 0; i < state.numPlayers; i++) {
-            if (i !== friendPlyrIdx && i !== threatIdx && state.players[i].influenceCount > 0) {
+            if (state.players[i].influenceCount > 0) {
                 var team;
 
                 if (state.players[i].team === 1)
@@ -872,17 +974,8 @@ function createAiPlayer(game, options) {
 
                 team.influenceCount += state.players[i].influenceCount;
                 team.cash += state.players[i].cash;
-
-                if (state.players[i].cash >= 7)
-                    team.readyToCoup++;
             }
         }
-
-        if (teamRed.readyToCoup > teamBlue.readyToCoup)
-            return 1;
-        
-        if (teamRed.readyToCoup < teamBlue.readyToCoup)
-            return -1;
 
         if (teamRed.influenceCount > teamBlue.influenceCount)
             return 1;
@@ -890,18 +983,13 @@ function createAiPlayer(game, options) {
         if (teamRed.influenceCount < teamBlue.influenceCount)
             return -1;
 
-        if (aiPlayer.team === 1)
-            teamRed.cash -= 2;
-        else
-            teamBlue.cash -= 2;
-
         if (teamRed.cash > teamBlue.cash)
             return 1;
 
         if (teamRed.cash < teamBlue.cash)
             return -1;
         
-        return 1;
+        return 0;
     }
 
     function exchange() {

@@ -666,7 +666,7 @@ function ourTeamWarning() {
 }
 function waitingAllowMessage() {
     var waitingAllows = [];
-    for (var i = 0; i < vm.state.numPlayers(); i++) {
+    for (var i = 0; i < vm.state.players().length; i++) {
         if (!vm.allows()[i] && vm.state.players()[i].influenceCount() > 0)
             waitingAllows.push(i);
     }
