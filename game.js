@@ -93,6 +93,8 @@ module.exports = function createGame(options) {
     game._test_setTurnState = _test_setTurnState;
     game._test_setInfluence = _test_setInfluence;
     game._test_changeInfluence = _test_changeInfluence;
+    game._test_hasRole = _test_hasRole;
+    game._test_discardRole = _test_discardRole;
     game._test_setCash = _test_setCash;
     game._test_setDeck = _test_setDeck;
     game._test_setTreasuryReserve = _test_setTreasuryReserve;
@@ -571,6 +573,7 @@ module.exports = function createGame(options) {
         }
 
         if (gameStats.gameType == 'reformation') {
+            state.treasuryReserve = 0;
             state.freeForAll = false;
         }
 
@@ -1462,6 +1465,7 @@ module.exports = function createGame(options) {
             var rolesMatches = [...message.matchAll(/\[(.+?)]/g)].map(match => match[1]);
             if (rolesMatches.length) {
                 _test_changeInfluence(playerIdx, rolesMatches);
+                emitState();
                 return;
             }
         } else {
@@ -1519,12 +1523,12 @@ module.exports = function createGame(options) {
 
     function _test_changeInfluence(playerIdx, roles) {
         if (state.players[playerIdx].influenceCount !== roles.length)
-            return;
+            return false;
         
         roles = roles.map(abbrev => roleFromAbbreviation(abbrev));
 
         var influence = state.players[playerIdx].influence;
-        var influenceRoles = influence.map(inf => inf.role);
+        var influenceRoles = influence.filter(inf => !inf.revealed).map(inf => inf.role);
         var testDeck = deck.concat(influenceRoles);
 
         for (var role of roles) {
@@ -1533,7 +1537,7 @@ module.exports = function createGame(options) {
             if (roleIdx >= 0)
                 testDeck.splice(roleIdx, 1);
             else
-                return;
+                return false;
         }
 
         deck = deck.concat(influenceRoles);
@@ -1547,7 +1551,31 @@ module.exports = function createGame(options) {
             }
         }
 
-        emitState();
+        console.log(deck);
+
+        return influence;
+    }
+
+    function _test_discardRole(playerIdx, role) {
+        var influence = state.players[playerIdx].influence;
+
+        for (var inf of influence) {
+            if (!inf.revealed && inf.role === role) {
+                for (var i = 0; i < deck.length; i++) {
+                    if (deck[i] !== role) {
+                        inf.role = deck[i];
+                        deck[i] = role;
+                        break;
+                    }
+                }
+            }
+        }
+
+        return influence;
+    }
+
+    function _test_hasRole(playerIdx, role) {
+        return state.players[playerIdx].influence.some(inf => !inf.revealed && inf.role === role);
     }
 
     function _test_setCash(playerIdx, cash) {

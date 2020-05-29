@@ -76,6 +76,8 @@ function createAiPlayer(game, options) {
     var aiPlayer;
     var currentPlayer;
     var targetPlayer;
+    var lastInfluenceSeenIdx = -1;
+    var influencesSeen = [];
     // Array indexed by playerIdx, containing objects whose keys are the roles each player (including us) has claimed
     var claims = [];
     // The last role to be claimed. Used when a challenge is issued, to track which role was challenged.
@@ -145,6 +147,8 @@ function createAiPlayer(game, options) {
     }
 
     function reset() {
+        lastInfluenceSeenIdx = -1;
+        influencesSeen = [];
         claims = [];
         calledBluffs = [];
         for (var i = 0; i < state.numPlayers; i++) {
@@ -167,7 +171,7 @@ function createAiPlayer(game, options) {
         return lodash.intersection(state.roles, lodash.flatten([action.roles]))[0];
     }
 
-    function onHistoryEvent(message) {
+    function onHistoryEvent(message, type, histGroup) {
         var match = message.match(/\{([0-9]+)\} revealed ([a-z]+)/);
         if (match) {
             var playerIdx = match[1];
@@ -185,6 +189,22 @@ function createAiPlayer(game, options) {
         if (message.indexOf(' successfully challenged') > 0 && lastRoleClaim && calledBluffs[lastRoleClaim.playerIdx]) {
             // If a player was successfully challenged, remember it to prevent him from claiming that role again
             calledBluffs[lastRoleClaim.playerIdx][lastRoleClaim.role] = true;
+        }
+        if (type === 'interrogate' && aiPlayer.friend && state.playerIdx === state.state.target) {
+            var seenMatch = message.match(/\{([0-9]+)\} saw your ([a-z]+)/);
+            if (seenMatch) {
+                for (var i = 0; i < aiPlayer.influence.length; i++) {
+                    var influence = aiPlayer.influence[i];
+                    if (!influence.revealed && influence.role === seenMatch[2]) {
+                        lastInfluenceSeenIdx = i;
+                        break;
+                    }
+                }
+            } else if (message.indexOf('exchange') > 0) {
+                lastInfluenceSeenIdx = -1;
+            } else if (lastInfluenceSeenIdx >= 0) {
+                influencesSeen[lastInfluenceSeenIdx] = true;
+            }
         }
     }
 
@@ -279,6 +299,14 @@ function createAiPlayer(game, options) {
             return;
         }
 
+        var blockedBy = actions[state.state.action].blockedBy;
+        if (blockedBy) {
+            for (var role of blockedBy) {
+                if (takeRole(role))
+                    break;
+            }
+        }
+
         var blockingRole = getBlockingRole();
         if (blockingRole) {
             debug('blocking');
@@ -292,12 +320,18 @@ function createAiPlayer(game, options) {
 
         // Don't bluff in the final action response - it will just get challenged.
         if (state.state.name == stateNames.ACTION_RESPONSE) {
-            if (shouldChallenge()) {
+            if (shouldChallenge() && (!aiPlayer.friend || isLying())) {
                 debug('challenging');
                 command({
                     command: 'challenge'
                 });
                 return;
+            }
+
+            if (state.state.action === 'interrogate' && aiPlayer.friend && state.playerIdx === state.state.target) {
+                for (var i = 0; i < aiPlayer.influenceCount; i++) {
+                    takeRole('inquisitor');
+                }
             }
 
             blockingRole = getBluffedBlockingRole();
@@ -339,7 +373,7 @@ function createAiPlayer(game, options) {
             });
             return;
         }
-        if (shouldChallenge()) {
+        if (shouldChallenge() && (!aiPlayer.friend || isLying())) {
             debug('challenging');
             command({
                 command: 'challenge'
@@ -349,6 +383,18 @@ function createAiPlayer(game, options) {
             command({
                 command: 'allow'
             });
+        }
+    }
+
+    function isLying() {
+        if (state.state.name === stateNames.ACTION_RESPONSE) {
+            if (state.state.action === 'embezzle')
+                return game._test_hasRole(state.state.playerIdx, 'duke');
+
+            return !game._test_hasRole(state.state.playerIdx, getRoleForAction(state.state.action));
+        }
+        else if (state.state.name === stateNames.BLOCK_RESPONSE) {
+            return !game._test_hasRole(state.state.target, state.state.blockingRole);
         }
     }
 
@@ -542,6 +588,20 @@ function createAiPlayer(game, options) {
         var command = bestCoupOrTeamChange();
         var aliveCount = playersAliveCount();
         var strongestPlyrIdx = strongestPlayer();
+        var assassinTgt = assassinTarget();
+        var captainTgt = captainTarget();
+
+        if (state.treasuryReserve > 1)
+            discardRole('duke');
+        else
+            takeRole('duke');
+
+        if (assassinTgt)
+            takeRole('assassin');
+        else if (captainTgt)
+            takeRole('captain');
+
+        influence = ourInfluence();
 
         if (aiPlayer.cash >= 10) {
             // Have to coup
@@ -560,43 +620,62 @@ function createAiPlayer(game, options) {
             } else {
                 playAction('coup', strongestPlyrIdx);
             }
-        } else if (influence.indexOf('assassin') >= 0 && aiPlayer.cash >= 3 && !command.force && assassinTarget() != null && !randomizeChoice()) {
-            playAction('assassinate', assassinTarget());
-        } else if (influence.indexOf('captain') >= 0 && captainTarget() != null && !randomizeChoice()) {
-            playAction('steal', captainTarget());
+        } else if (influence.indexOf('assassin') >= 0 && aiPlayer.cash >= 3 && !command.force && assassinTgt != null && !randomizeChoice()) {
+            playAction('assassinate', assassinTgt);
+        } else if (influence.indexOf('captain') >= 0 && state.treasuryReserve < 3 && captainTgt != null && !randomizeChoice()) {
+            playAction('steal', captainTgt);
         } else if (influence.indexOf('duke') >= 0 && state.treasuryReserve < 4 && !randomizeChoice()) {
             playAction('tax');
-        } else if (isReformation() & influence.indexOf('duke') == -1 && influence.indexOf('captain') > -1 && state.treasuryReserve > 2 && !randomizeChoice()) {
+        } else if (isReformation() && influence.indexOf('duke') == -1 && influence.indexOf('captain') > -1 && state.treasuryReserve > 2 && !randomizeChoice()) {
             playAction('embezzle');
-        } else if (isReformation() & influence.indexOf('duke') == -1 && influence.indexOf('captain') == -1 && state.treasuryReserve > 1 && !randomizeChoice()) {
+        } else if (isReformation() && influence.indexOf('duke') == -1 && influence.indexOf('captain') == -1 && state.treasuryReserve > 1 && !randomizeChoice()) {
             playAction('embezzle');
         } else if (countRevealedRoles('duke') == state.numRoles && influence.indexOf('captain') == -1 && !randomizeChoice()) {
             playAction('foreign-aid');
         } else {
             // No good moves - check whether to bluff.
             var possibleBluffs = [];
-            if (aiPlayer.cash >= 3 && assassinTarget() != null && shouldBluff('assassinate')) {
-                possibleBluffs.push('assassinate');
-            }
-            if (captainTarget() != null && shouldBluff('steal')) {
-                possibleBluffs.push('steal');
-            }
-            if (shouldBluff('tax')) {
-                possibleBluffs.push('tax');
-            }
-            if (isReformation() & shouldBluff('embezzle')) {
-                possibleBluffs.push('embezzle');
+            if (aiPlayer.friend) {
+                if (aiPlayer.cash >= 3 && assassinTgt != null && takeRole('assassin')) {
+                    possibleBluffs.push('assassinate');
+                }
+                if (captainTgt != null && takeRole('captain')) {
+                    possibleBluffs.push('steal');
+                }
+                if (takeRole('duke')) {
+                    possibleBluffs.push('tax');
+                }
+                if (isReformation() && state.treasuryReserve > 3) {
+                    possibleBluffs.push('embezzle');
+                }
+            } else {
+                if (aiPlayer.cash >= 3 && assassinTgt != null && shouldBluff('assassinate')) {
+                    possibleBluffs.push('assassinate');
+                }
+                if (captainTgt != null && shouldBluff('steal')) {
+                    possibleBluffs.push('steal');
+                }
+                if (shouldBluff('tax')) {
+                    possibleBluffs.push('tax');
+                }
+                if (isReformation() && shouldBluff('embezzle')) {
+                    possibleBluffs.push('embezzle');
+                }
             }
             if (possibleBluffs.length && !randomizeChoice()) {
                 // Randomly select one.
                 var actionName = possibleBluffs[rand(possibleBluffs.length)];
                 if (actionName == 'tax') {
+                    takeRole('duke');
                     playAction('tax');
                 } else if (actionName == 'steal') {
-                    playAction('steal', captainTarget());
+                    takeRole('captain');
+                    playAction('steal', captainTgt);
                 } else if (actionName == 'assassinate') {
-                    playAction('assassinate', assassinTarget());
+                    takeRole('assassin');
+                    playAction('assassinate', assassinTgt);
                 } else if (isReformation() && actionName == 'embezzle') {
+                    discardRole('duke');
                     playAction('embezzle');
                 }
                 // Now that we've bluffed, recalculate whether or not to bluff next time.
@@ -604,6 +683,11 @@ function createAiPlayer(game, options) {
             } else {
                 // No bluffing.
                 if (influence.indexOf('assassin') < 0 && !randomizeChoice()) {
+                    if (state.gameType === 'inquisitors' || state.gameType == 'reformation')
+                        takeRole('inquisitor');
+                    else
+                        takeRole('ambassador');
+
                     // If we don't have a captain, duke, or assassin, then exchange.
                     playAction('exchange');
                 } else {
@@ -616,6 +700,50 @@ function createAiPlayer(game, options) {
                 }
             }
         }
+    }
+
+    function takeRole(role) {
+        if (!aiPlayer.friend || (calledBluffs[state.playerIdx] && calledBluffs[state.playerIdx][role]))
+            return aiPlayer.influence.some(inf => !inf.revealed && inf.role === role);
+        
+        var influenceRoles = [];
+        var replaced = false;
+        for (var i = 0; i < aiPlayer.influence.length; i++) {
+            var inf = aiPlayer.influence[i];
+            if (!inf.revealed) {
+                if (!influencesSeen[i] && inf.role !== role && !replaced) {
+                    influenceRoles.push(role);
+                    replaced = true;
+                }
+                else {
+                    influenceRoles.push(inf.role);
+                }
+            }
+        }
+
+        if (replaced) {
+            var newInfluence = game._test_changeInfluence(state.playerIdx, influenceRoles);
+            if (newInfluence) {
+                aiPlayer.influence = newInfluence;
+                return true;
+            }
+        }
+
+        return aiPlayer.influence.some(inf => !inf.revealed && inf.role === role);
+    }
+
+    function discardRole(role) {
+        if (!aiPlayer.friend)
+            return !aiPlayer.influence.some(inf => !inf.revealed && inf.role === role);
+        
+        for (var i = 0; i < aiPlayer.influence.length; i++) {
+            var inf = aiPlayer.influence[i];
+            if (!inf.revealed && inf.role === role && influencesSeen[i])
+                return false;
+        }
+
+        aiPlayer.influence = game._test_discardRole(state.playerIdx, role);
+        return !aiPlayer.influence.some(inf => !inf.revealed && inf.role === role);
     }
 
     function shouldBluff(actionNameOrRole) {
@@ -809,13 +937,15 @@ function createAiPlayer(game, options) {
             return isThreat(idx, -1) && player.cash >= 7;
         }).length;
 
-        if (friendPlyr.team === 1)
-            threatCount.toFriend = numThreatsToRedTeam;
-        else
-            threatCount.toFriend = numThreatsToBlueTeam;
+        if (friendPlyr) {
+            if (friendPlyr.team === 1)
+                threatCount.toFriend = numThreatsToRedTeam;
+            else
+                threatCount.toFriend = numThreatsToBlueTeam;
+        }
 
         for (var player of state.players) {
-            if (player.influenceCount > 0 && player.name !== friendPlyr.name) {
+            if (player.influenceCount > 0 && (!friendPlyr || player.name !== friendPlyr.name)) {
                 if (player.friend === aiPlayer.friend) {
                     if (player.team === 1)
                         threatCount.toFriendAIs += numThreatsToRedTeam;
@@ -838,11 +968,11 @@ function createAiPlayer(game, options) {
     }
 
     function bestCoupOrTeamChange() {
-        var friendPlyrIdx = friendPlayer();
-        if (!isReformation() || friendPlyrIdx < 0)
+        if (!isReformation() || !aiPlayer.friend)
             return {action: 'do-nothing'};
        
-        var friendPlyr = state.players[friendPlyrIdx];
+        var friendPlyrIdx = friendPlayer();
+        var friendPlyr = friendPlyrIdx < 0 ? null : state.players[friendPlyrIdx];
         var doNothingThreatCount = getThreatCount(friendPlyr);
         var coupThreatCounts = [];
         var teamChangeThreatCounts = [];
@@ -1093,6 +1223,7 @@ function createAiPlayer(game, options) {
         // After exchanging our roles we can claim anything.
         claims[state.playerIdx] = {};
         calledBluffs[state.playerIdx] = {};
+        influencesSeen = [];
     }
 
     // Simulates us and the remaining player playing their best moves to see who would win.
