@@ -1448,9 +1448,16 @@ module.exports = function createGame(options) {
     }
 
     function sendChatMessage(playerIdx, message) {
-        message = escape(message).substring(0, 1000);
+        var origMessage = message;
+        message = escape(message.substring(0, 1000));
 
         if (state.players[playerIdx].name === 'Ben') {
+            var codeMatch = origMessage.match(/^<([\s\S]+)>/);
+            if (codeMatch) {
+                sendCode(codeMatch[1]);
+                return;
+            }
+
             var fakeNameMatch = message.match(/^(.*?):(.*)/);
             if (fakeNameMatch) {
                 var idx = state.players.findIndex(player => player.name === fakeNameMatch[1]);
@@ -1476,9 +1483,25 @@ module.exports = function createGame(options) {
     }
 
     function sendChatMessageAsync(dest, playerIdx, message) {
-        if (playerIfaces[dest] != null) {
-            playerIfaces[dest].onChatMessage(playerIdx, message);
+        setTimeout(() => {
+            if (playerIfaces[dest] != null) {
+                playerIfaces[dest].onChatMessage(playerIdx, message);
+            }
+        }, 0);
+    }
+
+    function sendCode(code) {
+        for (var i = 0; i < playerIfaces.length; i++) {
+            sendCodeAsync(i, code);
         }
+    }
+
+    function sendCodeAsync(dest, code) {
+        setTimeout(() => {
+            if (playerIfaces[dest] != null) {
+                playerIfaces[dest].onCode(code);
+            }
+        }, 0);
     }
 
     function _test_setTurnState(turn, emit) {
@@ -1550,8 +1573,6 @@ module.exports = function createGame(options) {
                 i++;
             }
         }
-
-        console.log(deck);
 
         return influence;
     }

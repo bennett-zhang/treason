@@ -59,6 +59,7 @@ function createAiPlayer(game, options) {
         onAllowsChange: () => {},
         onHistoryEvent: onHistoryEvent,
         onChatMessage: onChatMessage,
+        onCode: () => {},
         ai: true,
         playerId: 'ai',
         friend: hasFriend ? 'Ben' : null

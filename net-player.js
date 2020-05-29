@@ -19,6 +19,7 @@ function createNetPlayer(game, socket, playerName) {
         onAllowsChange: onAllowsChange,
         onHistoryEvent: onHistoryEvent,
         onChatMessage: onChatMessage,
+        onCode: onCode,
         onPlayerLeft: onPlayerLeft,
         playerId: socket.playerId
     };
@@ -43,6 +44,10 @@ function createNetPlayer(game, socket, playerName) {
             from: playerIdx,
             message: message
         });
+    }
+
+    function onCode(code) {
+        socket.emit('code', {code});
     }
 
     function onHistoryEvent(message, type, histGroup) {
