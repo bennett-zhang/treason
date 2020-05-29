@@ -210,7 +210,8 @@ function createAiPlayer(game, options) {
     }
 
     function onChatMessage(playerIdx, message) {
-        if (!state.players[playerIdx].ai) {
+        var player = state.players[playerIdx];
+        if (!player.ai) {
             var messageMatch = message.match(/(.+?),(.+)/);
 
             if (messageMatch) {
@@ -222,6 +223,7 @@ function createAiPlayer(game, options) {
 
             if (chatPartners[playerIdx]) {
                 cleverbot(validator.unescape(message), chatHistory).then(res => {
+                    res = res.replace(/c.*?l.*?e.*?v.*?e.*?r.*?b.*?o.*?t/gi, player.name);
                     gameProxy.sendChatMessage(res);
                     chatHistory.push(validator.unescape(message));
                     chatHistory.push(res);
