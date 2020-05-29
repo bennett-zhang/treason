@@ -566,12 +566,12 @@ module.exports = function createGame(options) {
 
             if (gameStats.gameType == 'reformation') {
                 playerState.team = nextTeam;
-                //nextTeam *= -1;
+                nextTeam *= -1;
             }
         }
 
         if (gameStats.gameType == 'reformation') {
-            //state.freeForAll = false;
+            state.freeForAll = false;
         }
 
         let firstPlayer;

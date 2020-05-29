@@ -217,13 +217,43 @@ function createAiPlayer(game, options) {
         return !state.freeForAll && aiPlayer.team == state.players[playerIdx].team;
     }
 
+    function enemyCount() {
+        var count = 0;
+
+        for (var i = 0; i < state.numPlayers; i++) {
+            var player = state.players[i];
+
+            if (player.influenceCount > 0) {
+                if (!aiPlayer.friend)
+                    count++;
+                else if (player.name !== aiPlayer.friend && player.friend !== aiPlayer.friend)
+                    count++;
+            }
+        }
+
+        return count;
+    }
+
+    function shouldTarget(playerIdx) {
+        var player = state.players[playerIdx];
+
+        if (!player || player.influenceCount <= 0 || isTeammate(playerIdx))
+            return false;
+
+        if (!aiPlayer.friend)
+            return true;
+        
+        if (player.name === aiPlayer.friend || (enemyCount() > 0 && player.friend === aiPlayer.friend))
+            return false;
+
+        return true;
+    }
+
     function respondToAction() {
         if (aiPlayer.influenceCount <= 0)
             return;
 
-        if (state.players[state.state.playerIdx].name === aiPlayer.friend
-            || (aiPlayer.friend && state.players[state.state.playerIdx].friend === aiPlayer.friend)) {
-            
+        if (!shouldTarget(state.state.playerIdx)) {
             debug('allowing');
             command({
                 command: 'allow'
@@ -292,9 +322,7 @@ function createAiPlayer(game, options) {
         if (aiPlayer.influenceCount <= 0)
             return;
 
-        if (state.players[state.state.target].name === aiPlayer.friend
-            || (aiPlayer.friend && state.players[state.state.target].friend === aiPlayer.friend)) {
-            
+        if (!shouldTarget(state.state.target)) {
             debug('allowing');
             command({
                 command: 'allow'
@@ -511,30 +539,28 @@ function createAiPlayer(game, options) {
         var influence = ourInfluence();
         debug('influence: ' + influence);
 
-        var threat = coupFriendThreat();
-        var change = bestTeamChange();
+        var command = bestCoupOrTeamChange();
+        var aliveCount = playersAliveCount();
         var strongestPlyrIdx = strongestPlayer();
 
         if (aiPlayer.cash >= 10) {
+            // Have to coup
             playAction('coup', strongestPlyrIdx);
-        } if (threat >= 0 && aiPlayer.cash >= 7) {
-            playAction('coup', threat);
-        } else if (change >= 0) {
-            if (change === state.playerIdx)
-                playAction('change-team');
-            else
-                playAction('convert', change);
+        } else if (command.action !== 'do-nothing') {
+            // Coup or change someone's team in order to protect the most friends
+            playAction(command.action, command.target);
         } else if (isReformation() && aiPlayer.cash >= 1 && !aiPlayer.friend && onTeamByThemselves(state.playerIdx)
-                && playersAliveCount() > 2) {
+                && aliveCount > 2) {
             
+            // Don't want to be on a team by yourself
             playAction('change-team');
-        } else if (aiPlayer.cash >= 7 && (!aiPlayer.friend || aiPlayer.friend !== state.players[strongestPlyrIdx].friend)) {
+        } else if (aiPlayer.cash >= 7 && !command.force && (shouldTarget(strongestPlyrIdx) || aliveCount === 2)) {
             if (state.players[strongestPlyrIdx].name === aiPlayer.friend) {
                 playAction('assassinate', strongestPlyrIdx);
             } else {
                 playAction('coup', strongestPlyrIdx);
             }
-        } else if (influence.indexOf('assassin') >= 0 && aiPlayer.cash >= 3 && assassinTarget() != null && !randomizeChoice()) {
+        } else if (influence.indexOf('assassin') >= 0 && aiPlayer.cash >= 3 && !command.force && assassinTarget() != null && !randomizeChoice()) {
             playAction('assassinate', assassinTarget());
         } else if (influence.indexOf('captain') >= 0 && captainTarget() != null && !randomizeChoice()) {
             playAction('steal', captainTarget());
@@ -701,25 +727,15 @@ function createAiPlayer(game, options) {
     }
 
     function assassinTarget() {
-        var potentialTargets = playersByStrength().filter(function (idx) {
-            return !canBlock(idx, 'assassinate') && state.players[idx].name !== aiPlayer.friend;
+        return playersByStrength().find(idx => {
+            return !canBlock(idx, 'assassinate') && shouldTarget(idx);
         });
-
-        if (aiPlayer.friend)
-            return potentialTargets.find(idx => state.players[idx].friend !== aiPlayer.friend);
-
-        return potentialTargets[0];
     }
 
     function captainTarget() {
-        var potentialTargets = playersByStrength().filter(function (idx) {
-            return !canBlock(idx, 'steal') && state.players[idx].cash > 0 && state.players[idx].name !== aiPlayer.friend;
+        return playersByStrength().find(idx => {
+            return !canBlock(idx, 'steal') && state.players[idx].cash > 0 && shouldTarget(idx);
         });
-
-        if (aiPlayer.friend)
-            return potentialTargets.find(idx => state.players[idx].friend !== aiPlayer.friend);
-
-        return potentialTargets[0];
     }
 
     function canBlock(playerIdx, actionName) {
@@ -755,7 +771,6 @@ function createAiPlayer(game, options) {
 
         debug('Indices without teammates: ' + indices.join());
 
-
         var randomNumber = rand(1000000000000000);
 
         return indices.sort(function (a, b) {
@@ -780,133 +795,188 @@ function createAiPlayer(game, options) {
         });
     }
 
-    function coupFriendThreat() {
-        var friendPlyrIdx = friendPlayer();
-        if (friendPlyrIdx < 0)
-            return -1;
-        
-        var friendPlyr = state.players[friendPlyrIdx];
+    function getThreatCount(friendPlyr) {
+        var threatCount = {
+            toFriend: 0,
+            toFriendAIs: 0,
+            toEnemies: 0
+        };
 
-        if (aiPlayer.team !== friendPlyr.team)
-            return -1;
+        var numThreatsToRedTeam = state.players.filter((player, idx) => {
+            return isThreat(idx, 1) && player.cash >= 7;
+        }).length;
+        var numThreatsToBlueTeam = state.players.filter((player, idx) => {
+            return isThreat(idx, -1) && player.cash >= 7;
+        }).length;
 
-        for (var i = 1; i < state.numPlayers; i++) {
-            var j = (state.playerIdx + i) % state.numPlayers;
-            var player = state.players[j];
+        if (friendPlyr.team === 1)
+            threatCount.toFriend = numThreatsToRedTeam;
+        else
+            threatCount.toFriend = numThreatsToBlueTeam;
 
-            if (isThreat(j, aiPlayer.team) && player.cash >= 7 && player.influenceCount === 1)
-                return j;
+        for (var player of state.players) {
+            if (player.influenceCount > 0 && player.name !== friendPlyr.name) {
+                if (player.friend === aiPlayer.friend) {
+                    if (player.team === 1)
+                        threatCount.toFriendAIs += numThreatsToRedTeam;
+                    else
+                        threatCount.toFriendAIs += numThreatsToBlueTeam;
+                } else {
+                    if (player.team === 1)
+                        threatCount.toEnemies += numThreatsToRedTeam;
+                    else
+                        threatCount.toEnemies += numThreatsToBlueTeam;
+
+                    // Non-friend AIs are not a threat to themselves
+                    if (state.freeForAll && player.cash >= 7)
+                        threatCount.toEnemies--;
+                }
+            }
         }
 
-        return -1;
+        return threatCount;
     }
 
-    function bestTeamChange() {
+    function bestCoupOrTeamChange() {
         var friendPlyrIdx = friendPlayer();
         if (!isReformation() || friendPlyrIdx < 0)
-            return -1;
-
+            return {action: 'do-nothing'};
+       
         var friendPlyr = state.players[friendPlyrIdx];
-        var threatCounts = [];
+        var doNothingThreatCount = getThreatCount(friendPlyr);
+        var coupThreatCounts = [];
+        var teamChangeThreatCounts = [];
+
+        // Count how many threats there will be after couping a player
+        for (var i = 0; i < state.numPlayers; i++) {
+            var player = state.players[i];
+            var tempFreeForAll = state.freeForAll;
+            var shouldTgt = shouldTarget(i);
+
+            if (!shouldTgt || aiPlayer.cash < 7) {
+                coupThreatCounts[i] = null;
+                continue;
+            }
+
+            if (onTeamByThemselves(i) && player.influenceCount === 1)
+                state.freeForAll = true;
+            
+            player.influenceCount--;
+            coupThreatCounts[i] = getThreatCount(friendPlyr);
+            player.influenceCount++;
+            state.freeForAll = tempFreeForAll;
+        }
         
-        for (var i = 0; i < state.numPlayers + 1; i++) {
+        // Count how many threats there will be after changing teams
+        // or converting a player
+        for (var i = 0; i < state.numPlayers; i++) {
+            var player = state.players[i];
             var tempFreeForAll = state.freeForAll;
 
-            if (i < state.numPlayers) {
-                if (state.players[i].influenceCount === 0
-                    || (aiPlayer.cash < 2 && (aiPlayer.cash < 1 || i !== state.playerIdx))) {
-                    
-                    threatCounts[i] = null;
-                    continue;
-                }
-
-                if (onTeamByThemselves(i) || state.freeForAll)
-                    state.freeForAll = !state.freeForAll;
-
-                state.players[i].team *= -1;
+            if (player.influenceCount === 0
+                || (aiPlayer.cash < 2 && (aiPlayer.cash < 1 || i !== state.playerIdx))) {
+                
+                teamChangeThreatCounts[i] = null;
+                continue;
             }
 
-            var threatCount = {
-                toFriend: 0,
-                toFriendAIs: 0,
-                toEnemies: 0
-            };
+            if (onTeamByThemselves(i) || state.freeForAll)
+                state.freeForAll = !state.freeForAll;
 
-            var numThreatsToRedTeam = state.players.filter((player, idx) => {
-                return isThreat(idx, 1) && player.cash >= 7;
-            }).length;
-            var numThreatsToBlueTeam = state.players.filter((player, idx) => {
-                return isThreat(idx, -1) && player.cash >= 7;
-            }).length;
-
-            if (friendPlyr.team === 1)
-                threatCount.toFriend = numThreatsToRedTeam;
-            else
-                threatCount.toFriend = numThreatsToBlueTeam;
-
-            for (var j = 0; j < state.numPlayers; j++) {
-                var player = state.players[j];
-                if (player.influenceCount > 0 && player.name !== friendPlyr.name) {
-                    if (player.friend === aiPlayer.friend) {
-                        if (player.team === 1)
-                            threatCount.toFriendAIs += numThreatsToRedTeam;
-                        else
-                            threatCount.toFriendAIs += numThreatsToBlueTeam;
-                    } else {
-                        if (player.team === 1)
-                            threatCount.toEnemies += numThreatsToRedTeam;
-                        else
-                            threatCount.toEnemies += numThreatsToBlueTeam;
-                    }
-                }
-            }
-
-            threatCounts[i] = threatCount;
-
-            if (i < state.numPlayers)
-                state.players[i].team *= -1;
-
+            player.team *= -1;
+            teamChangeThreatCounts[i] = getThreatCount(friendPlyr);
+            player.team *= -1;
             state.freeForAll = tempFreeForAll;
         }
 
-        arrayKeepExtremeValues(threatCounts, (a, b) => a.toFriend - b.toFriend, false);
-        arrayKeepExtremeValues(threatCounts, (a, b) => a.toFriendAIs - b.toFriendAIs, false);
-        arrayKeepExtremeValues(threatCounts, (a, b) => a.toEnemies - b.toEnemies, true);
+        var threatCounts = [doNothingThreatCount, ...coupThreatCounts, ...teamChangeThreatCounts];
 
+        // Minimize threats to friend
+        var threatCount = arrayKeepExtremeValues(threatCounts, (a, b) => a.toFriend - b.toFriend, false);
+        if (threatCount.toFriend > 0) {
+            arrayKeepExtremeValues(threatCounts, (a, b) => {
+                return (a.toEnemies / a.toFriend) - (b.toEnemies / b.toFriend)
+            }, true);
+            arrayKeepExtremeValues(threatCounts, (a, b) => {
+                return (a.toFriendAIs / a.toFriend) - (b.toFriendAIs / b.toFriend)
+            }, true);
+        }
+
+        // Minimize threats to friend AIs
+        threatCount = arrayKeepExtremeValues(threatCounts, (a, b) => a.toFriendAIs - b.toFriendAIs, false);
+        if (threatCount.toFriendAIs > 0) {
+            arrayKeepExtremeValues(threatCounts, (a, b) => {
+                return (a.toEnemies / a.toFriendAIs) - (b.toEnemies / b.toFriendAIs)
+            }, true);
+        }
+
+        doNothingThreatCount = threatCounts[0];
+        coupThreatCounts = threatCounts.slice(1, state.numPlayers + 1);
+        teamChangeThreatCounts = threatCounts.slice(state.numPlayers + 1, state.numPlayers * 2 + 1);
+
+        // If doing nothing is the best option
+        if (!coupThreatCounts.find(el => el !== null) && !teamChangeThreatCounts.find(el => el !== null))
+            return {action: 'do-nothing', force: true};
+
+        // If couping is the best option, prioritize players going first
+        if (!doNothingThreatCount) {
+            for (var i = 1; i < state.numPlayers; i++) {
+                var j = (state.playerIdx + i) % state.numPlayers;
+
+                if (coupThreatCounts[j])
+                    return {action: 'coup', target: j};
+            }
+        }
+
+        // Change sides to be on the stronger team
         var strongTeam = strongerTeam();
-        if (threatCounts[state.playerIdx] && strongTeam && aiPlayer.team !== strongTeam && playersAliveCount() > 2)
-            return state.playerIdx;
-        if (threatCounts[state.numPlayers])
-            return -1;
-        if (threatCounts[state.playerIdx])
-            return state.playerIdx;
+        if (teamChangeThreatCounts[state.playerIdx] && strongTeam && aiPlayer.team !== strongTeam && playersAliveCount() > 2)
+            return {action: 'change-team'};
         
+        // Prioritize doing nothing, since it is free
+        if (doNothingThreatCount)
+            return {action: 'do-nothing'};
+        
+        // Change teams
+        if (teamChangeThreatCounts[state.playerIdx])
+            return {action: 'change-team'};
+        
+        // Convert players with zero coins,
+        // since they can't change their team even if they wanted to.
+        // Players with the most influences and who are going first
+        // are prioritized.
         var targetIdx = -1;
         var maxInfluenceCount = 0;
         for (var i = 1; i < state.numPlayers; i++) {
             var j = (state.playerIdx + i) % state.numPlayers;
 
-            if (threatCounts[j] && state.players[j].cash === 0 && state.players[j].influenceCount > maxInfluenceCount) {
+            if (teamChangeThreatCounts[j] && state.players[j].cash === 0 && state.players[j].influenceCount > maxInfluenceCount) {
                 targetIdx = j;
                 maxInfluenceCount = state.players[j].influenceCount;
             }
         }
         if (targetIdx >= 0)
-            return targetIdx;
+            return {action: 'convert', target: targetIdx};
 
+        // Prioritize converting players going last, since
+        // they will be forced to stay on that team for the longest.
         for (var i = 1; i < state.numPlayers; i++) {
             var j = (state.playerIdx - i + state.numPlayers) % state.numPlayers;
             
-            if (threatCounts[j])
-                return j;
+            if (teamChangeThreatCounts[j])
+                return {action: 'convert', target: j};
         }
+
+        return {action: 'do-nothing'};
     }
 
+    // Find the max or min value in an array, and replace all of the
+    // non-extreme values in that array with null
     function arrayKeepExtremeValues(arr, compareFunc, max = true) {
         if (!arr.length)
             return arr;
 
-        var maxValue = arr.reduce((prev, curr) => {
+        var extremeValue = arr.reduce((prev, curr) => {
             if (prev === null)
                 return curr;
 
@@ -922,9 +992,11 @@ function createAiPlayer(game, options) {
         });
 
         for (var i = 0; i < arr.length; i++) {
-            if (arr[i] !== null && compareFunc(arr[i], maxValue) !== 0)
+            if (arr[i] !== null && compareFunc(arr[i], extremeValue) !== 0)
                 arr[i] = null;
         }
+
+        return extremeValue;
     }
 
     function playersAliveCount() {
