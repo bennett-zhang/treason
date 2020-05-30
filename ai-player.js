@@ -50,6 +50,9 @@ function createAiPlayer(game, options) {
     var chanceToHaveFriend = 1;
     var hasFriend = Math.random() <= chanceToHaveFriend;
 
+    if (hasFriend)
+        options.chanceToChallenge = 0.3;
+
     var chatHistory = [];
     var chatPartners = [];
 
@@ -898,7 +901,7 @@ function createAiPlayer(game, options) {
         var potentialTargets = sortedPlayers.filter(idx => state.players[idx].name !== aiPlayer.friend);
         var target = potentialTargets.find(idx => state.players[idx].friend !== aiPlayer.friend);
 
-        if (target)
+        if (target !== undefined)
             return target;
 
         return potentialTargets[0];
