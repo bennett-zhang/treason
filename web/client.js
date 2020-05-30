@@ -309,6 +309,14 @@ socket.on('created', function(data) {
 socket.on('joined', function(data) {
     vm.playingGame(data.gameName);
     vm.history([]);
+    $("ul.list-group-chat").draggable({
+        handle: ".drag-handle"
+    }).resizable({
+        handles: "w, e"
+    });
+    $("div.chat-wrapper").resizable({
+        handles: "s"
+    });
     $('.chat').html('');
 
     var hash;

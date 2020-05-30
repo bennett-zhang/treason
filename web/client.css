@@ -80,11 +80,21 @@ div.activity {
 div.hidden {
     display: none;
 }
-div.chat {
+ul.list-group-chat {
+    z-index: 10;
+}
+li.drag-handle {
+    background-color: #eee;
+    cursor: move;
+}
+div.chat-wrapper {
     height: 200px;
-    resize: vertical;
-    overflow-y: scroll;
     margin-bottom: 10px;
+    border-bottom: 1px solid #ccc;
+}
+div.chat {
+    height: 100%;
+    overflow-y: scroll;
     word-wrap: break-word;
 }
 textarea.chat-input {

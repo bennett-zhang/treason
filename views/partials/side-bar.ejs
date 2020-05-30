@@ -25,11 +25,14 @@
         </div>
     </li>
 </ul>
-<ul class="list-group">
+<ul class="list-group list-group-chat">
+    <li class="list-group-item drag-handle"></li>
     <li class="list-group-item">
         <a href="javascript: null" data-bind="event: {vclick: showChat}, visible: sidebar() != 'chat'">Chat</a>
         <div data-bind="visible: sidebar() == 'chat'">
-            <div class="chat"></div>
+            <div class="chat-wrapper">
+                <div class="chat"></div>
+            </div>
             <textarea class="chat-input form-control" rows="2" placeholder="Chat message"></textarea>
         </div>
     </li>
