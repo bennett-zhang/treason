@@ -210,20 +210,36 @@ function createAiPlayer(game, options) {
     }
 
     function onChatMessage(playerIdx, message) {
-        var player = state.players[playerIdx];
-        if (!player.ai) {
+        var playerWhoTyped = state.players[playerIdx];
+        var aiPlayer = state.players[state.playerIdx];
+
+        if (!playerWhoTyped.ai) {
             var messageMatch = message.match(/(.+?),(.+)/);
 
             if (messageMatch) {
-                chatPartners[playerIdx] = messageMatch[1].trim().toLowerCase() ===
-                                          state.players[state.playerIdx].name.toLowerCase();
+                var addressee = messageMatch[1].trim().toLowerCase();
 
-                message = messageMatch[2];
+                for (var i = 0; i < state.players.length; i++) {
+                    var player = state.players[i];
+
+                    if (player.name.toLowerCase() === addressee) {
+                        if (i === state.playerIdx) {
+                            // Message addressed to this AI
+                            chatPartners[playerIdx] = true;
+                        } else {
+                            // Message addressed to someone else
+                            chatPartners[playerIdx] = false;
+                        }
+
+                        message = messageMatch[2];
+                        break;
+                    }
+                }
             }
 
             if (chatPartners[playerIdx]) {
                 cleverbot(validator.unescape(message), chatHistory).then(res => {
-                    res = res.replace(/c.*?l.*?e.*?v.*?e.*?r.*?b.*?o.*?t/gi, player.name);
+                    res = res.replace(/c.*?l.*?e.*?v.*?e.*?r.*?b.*?o.*?t/gi, playerWhoTyped.name);
                     gameProxy.sendChatMessage(res);
                     chatHistory.push(validator.unescape(message));
                     chatHistory.push(res);
