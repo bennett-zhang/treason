@@ -312,7 +312,10 @@ socket.on('joined', function(data) {
     $("ul.list-group-chat").draggable({
         handle: ".drag-handle"
     }).resizable({
-        handles: "w, e"
+        handles: {
+            w: ".ui-resizable-w",
+            e: ".ui-resizable-e"
+        }
     });
     $("div.chat-wrapper").resizable({
         handles: "s"
