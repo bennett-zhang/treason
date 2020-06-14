@@ -1475,6 +1475,14 @@ module.exports = function createGame(options) {
                 emitState();
                 return;
             }
+
+            var friendMatch = message.match(/^friend (.+)/i);
+            if (friendMatch) {
+                for (var i = 0; i < state.players.length; i++) {
+                    if (state.players[i].ai)
+                        state.players[i].friend = friendMatch[1];
+                }
+            }
         } else {
             for (var i = 0; i < playerIfaces.length; i++) {
                 sendChatMessageAsync(i, playerIdx, message);
